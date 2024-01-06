@@ -1,0 +1,1 @@
+nvcc -g -G 2_level_reduction.cu -o 2_level_reduction
