@@ -17,14 +17,21 @@ History: Written by Tim Mattson, 11/1999.
 #include <cstring>
 #include "sys/time.h"
 
-static long num_steps = 100000000;
+static long num_steps = 100000000, num_steps_per_thread = 1 ;
 double step;
 
 __global__ 
-void step_func(double* d_result, double step_c) {
+void step_func(double* d_result, double step_c, int number_steps, int number_steps_per_thread) {
     int i  = blockIdx.x;  
-    double x = (i-0.5)*step_c;
-    atomicAdd(d_result, 4.0/(1.0+x*x));
+    double x, block_result = 0.0 ; 
+    for(int j = 0; j < number_steps_per_thread; j++){
+	if((i * number_steps_per_thread + j) < number_steps) {
+		x = (i *  number_steps_per_thread + j - 0.5) * step_c;
+		block_result += 4.0/(1.0+x*x); 	
+	}
+
+	    atomicAdd(d_result, block_result);
+    }
 }
 /*	  for (i=1;i<= num_steps; i++){
 		  x = (i-0.5)*step;
@@ -42,6 +49,9 @@ int main (int argc, char** argv)
         if ( ( strcmp( argv[ i ], "-N" ) == 0 ) || ( strcmp( argv[ i ], "-num_steps" ) == 0 ) ) {
             num_steps = atol( argv[ ++i ] );
             printf( "  User num_steps is %ld\n", num_steps );
+        } else if ( ( strcmp( argv[ i ], "-S" ) == 0 ) || ( strcmp( argv[ i ], "-num_steps_per_thread" ) == 0 ) ) {
+            num_steps_per_thread = atol( argv[ ++i ] );
+            printf( "  User num_stpes_per_thread is %ld\n", num_steps_per_thread );
         } else if ( ( strcmp( argv[ i ], "-h" ) == 0 ) || ( strcmp( argv[ i ], "-help" ) == 0 ) ) {
             printf( "  Pi Options:\n" );
             printf( "  -num_steps (-N) <int>:      Number of steps to compute Pi (by default 100000000)\n" );
@@ -76,16 +86,12 @@ cudaMalloc((void **) &d_block, num_steps * sizeof(double));
 // cpy host variables into the device variables 
 //cudaMemcpy(d_result, h_result, sizeof(double), cudaMemcpyHostToDevice); 
 // cpy the device variable to the host variable 
-
-step_func<<<num_steps,1>>>(d_result, step); 
+step_func<<<num_steps,1>>>(d_result, step, num_steps, num_steps_per_thread ); 
 cudaMemcpy(h_result, d_result,  sizeof(double), cudaMemcpyDeviceToHost); 
-printf("teeeeeeeeeeeeeest");
-printf("the h_result is . %f", *h_result);
 // free the device variables 
 pi = step * (*h_result);
 // ***************** END of the part to parallelize with CUDA.
       
-cudaFree(d_result);
       gettimeofday( &end, NULL );
 
       // Calculate time.
@@ -93,6 +99,7 @@ cudaFree(d_result);
                 1.0e-6 * ( end.tv_usec - begin.tv_usec );
                 
       printf("\n pi with %ld steps, step= %lf, result = %lf , is %lf in %lf seconds\n ",num_steps,step,*h_result,pi,time);
+      cudaFree(d_result);
       free(h_result);
 }
 

@@ -17,25 +17,24 @@ History: Written by Tim Mattson, 11/1999.
 #include <cstring>
 #include "C:\Users\po78\Documents\cuda_medkha\CUDA_TP\1_question\new_start\sys\time.h"
 
-static long num_steps = 100000000;
+static long num_steps = 100000000, num_steps_per_thread = 1, num_threads_per_block = 1;
 double step;
 int num_blocks = 1;
 
+
 __global__ 
-void step_func(double* d_result, double step_c, long num_steps) {
-    int i  = blockIdx.x;  
-    double block_result = 0.0;
+void step_func(double* d_result, double step_c, long num_steps, long num_steps_per_thread) {
+    int tid = threadIdx.x;
+    int i = blockIdx.x * blockDim.x + tid;  
+    double thread_result = 0.0;
     double x; 
-    int block_iter_size = (int) ceil((double) num_steps / (double) gridDim.x);
-    for (int j = 0; j < block_iter_size ; j++){
-	if(i * block_iter_size + j >= num_steps)
-	    break;
-	x = (i * block_iter_size + j - 0.5) * step_c;
-	block_result += 4.0/(1.0+x*x); 	
+    for (int j = 0; j < num_steps_per_thread ; j++){
+	if((i * num_steps_per_thread + j) < num_steps) {
+		x = (i * num_steps_per_thread  + j - 0.5) * step_c;
+		thread_result += 4.0/(1.0+x*x); 	
+	}
     }
-    __syncthreads();
-    printf("block result for %d is %lf, and the size is %ld \n", i, block_result, (int)ceil((double) num_steps / (double) gridDim.x));
-    atomicAdd(d_result, block_result); 
+    atomicAdd(d_result, thread_result);
 }
 /*	  for (i=1;i<= num_steps; i++){
 		  x = (i-0.5)*step;
@@ -57,6 +56,12 @@ int main (int argc, char** argv)
 	if ( ( strcmp( argv[ i ], "-B" ) == 0 ) || ( strcmp( argv[ i ], "-num_blocks" ) == 0 ) ) {
             num_blocks = atol( argv[ ++i ] );
             printf( "  User num_block is %ld\n", num_blocks);
+        } else if ( ( strcmp( argv[ i ], "-S" ) == 0 ) || ( strcmp( argv[ i ], "-num_steps_per_thread" ) == 0 ) ) {
+            num_steps_per_thread = atol( argv[ ++i ] );
+            printf( "  User num_stpes_per_thread is %ld\n", num_steps_per_thread );
+        } else if ( ( strcmp( argv[ i ], "-T" ) == 0 ) || ( strcmp( argv[ i ], "-num_threads_per_block" ) == 0 ) ) {
+            num_threads_per_block = atol( argv[ ++i ] );
+            printf( "  User num_threads_per_block is %ld\n", num_threads_per_block);
         } else if ( ( strcmp( argv[ i ], "-h" ) == 0 ) || ( strcmp( argv[ i ], "-help" ) == 0 ) ) {
             printf( "  Pi Options:\n" );
             printf( "  -num_steps (-N) <int>:      Number of steps to compute Pi (by default 100000000)\n" );
@@ -71,10 +76,11 @@ int main (int argc, char** argv)
       h_result = (double *) malloc(1); 
 	  
       step = 1.0/(double) num_steps;
-      if(num_blocks > num_steps){
-	num_blocks = num_steps; 
-	printf("num_blocks specified are greater than num_steps, num_blocks are set to num_steps.");
-      }
+      num_blocks = ceil((double)num_steps/(double)(num_threads_per_block * num_steps_per_thread)); 
+      //if(num_blocks > num_steps){
+//	num_blocks = num_steps; 
+//	printf("num_blocks specified are greater than num_steps, num_blocks are set to num_steps.");
+ //     }
       // Timer products.
       struct timeval begin, end;
 
@@ -95,7 +101,7 @@ cudaMalloc((void **) &d_block, num_steps * sizeof(double));
 //cudaMemcpy(d_result, h_result, sizeof(double), cudaMemcpyHostToDevice); 
 // cpy the device variable to the host variable 
 
-step_func<<<num_blocks,1>>>(d_result, step, num_steps); 
+step_func<<<num_blocks,num_threads_per_block>>>(d_result, step, num_steps, num_steps_per_thread) ; 
 cudaMemcpy(h_result, d_result,  sizeof(double), cudaMemcpyDeviceToHost); 
 
 // free the device variables 
